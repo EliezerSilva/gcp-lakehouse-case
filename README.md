@@ -1,159 +1,284 @@
-# Lakehouse Case — Implementação GCP
+# GCP Lakehouse Case
 
-Implementação fiel do case técnico de Engenharia de Dados no Google Cloud Platform.
-Arquitetura: Cloud Storage → BigQuery RAW → BRONZE → SILVER → GOLD.
+## Sobre o Projeto
 
----
+Este projeto foi desenvolvido para demonstrar a implementação de uma arquitetura Lakehouse moderna utilizando serviços nativos da Google Cloud Platform (GCP).
 
-## Pré-requisitos
+O objetivo foi construir um pipeline completo de dados, desde a ingestão de múltiplas fontes até a disponibilização de informações analíticas para consumo de negócio, aplicando conceitos de modelagem dimensional, qualidade de dados, governança e observabilidade.
 
-```bash
-pip install google-cloud-bigquery google-cloud-storage pandas openpyxl db-dtypes
-```
-
-Autenticação:
-```bash
-gcloud auth application-default login
-# ou: export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
-```
+A solução simula um ambiente corporativo onde dados provenientes de CRM, ERP, logística, atendimento ao cliente, canais comerciais, produtos, vendedores e sistemas legados precisam ser integrados em uma plataforma única de dados.
 
 ---
 
-## Estrutura
+## Arquitetura da Solução
 
-```
-notebooks/
-├── 00_setup.py              # Config central, helpers, logging
-├── 01_raw_ingestion.py      # GCS → RAW (9 tabelas, fidelidade total)
-├── 02_bronze_transform.py   # RAW → BRONZE (correções técnicas)
-├── 03_silver_integrate.py   # BRONZE → SILVER (integração, dedup, órfãos)
-├── 04_gold_model.py         # SILVER → GOLD (dimensional + métricas + view)
-├── 05_quality_checks.py     # Validações cross-layer → quality.validation_results
-├── consultas_bi.sql         # 10 consultas analíticas sobre vw_kpis_pedidos
-├── run_pipeline.py          # Orquestrador de execução sequencial
-└── setup_00.py              # Alias de importação para 00_setup.py
+A arquitetura foi implementada seguindo o padrão Medallion Architecture.
+
+```text
+Sistemas de Origem
+        │
+        ▼
+Cloud Storage (RAW)
+        │
+        ▼
+BigQuery RAW
+        │
+        ▼
+BRONZE
+        │
+        ▼
+SILVER
+        │
+        ▼
+Dataform
+        │
+        ▼
+GOLD
+        │
+        ├── Dimensões
+        ├── Fato
+        └── Data Marts
+        │
+        ▼
+Quality Layer
+        │
+        ▼
+Consumo Analítico
 ```
 
 ---
 
-## Execução
+## Tecnologias Utilizadas
 
-### Pipeline completa
-```bash
-cd notebooks/
-python run_pipeline.py
+* Google Cloud Platform (GCP)
+* Cloud Storage
+* BigQuery
+* Dataform
+* SQL
+* Python
+* Modelagem Dimensional
+* Data Quality
+* Data Governance
+
+---
+
+## Sistemas de Origem
+
+O projeto utiliza múltiplas fontes de dados simulando um ambiente corporativo real.
+
+| Sistema               | Formato |
+| --------------------- | ------- |
+| CRM Clientes          | XLSX    |
+| ERP Pedidos Cabeçalho | CSV     |
+| ERP Pedidos Itens     | CSV     |
+| Canais Comerciais     | XLSX    |
+| Produtos              | JSON    |
+| Entregas              | JSON    |
+| Atendimento           | NDJSON  |
+| Vendedores            | CSV     |
+| Regiões Legadas       | TXT     |
+
+---
+
+## Estrutura do Cloud Storage
+
+```text
+eli-lakehouse-gcp-lake
+
+├── raw
+├── bronze
+├── silver
+├── gold
+├── quality
+├── control
+├── jobs
+└── evidence
 ```
 
-### Camada específica (reprocessamento)
-```bash
-python run_pipeline.py --layer raw
-python run_pipeline.py --layer bronze
-python run_pipeline.py --layer silver
-python run_pipeline.py --layer gold
-python run_pipeline.py --layer quality
-```
+### RAW
 
-### Notebook individual
-```bash
-python 01_raw_ingestion.py
-python 02_bronze_transform.py
-# ...
-```
+Armazena os arquivos exatamente como recebidos dos sistemas de origem.
+
+### BRONZE
+
+Primeira camada de ingestão e padronização.
+
+### SILVER
+
+Camada responsável pela integração, limpeza e enriquecimento dos dados.
+
+### GOLD
+
+Camada analítica contendo dimensões, fato e marts.
+
+### QUALITY
+
+Camada responsável pelo armazenamento dos resultados das validações.
+
+### CONTROL
+
+Camada responsável pelo armazenamento de logs e informações operacionais.
 
 ---
 
 ## Datasets BigQuery
 
-| Dataset   | Conteúdo                                              |
-|-----------|-------------------------------------------------------|
-| raw       | 9 tabelas — dados brutos, tudo STRING                 |
-| bronze    | 9 tabelas — tipos corretos, correções técnicas        |
-| silver    | Entidades conformadas + tabelas _orphan               |
-| gold      | Dimensões, fato, métricas, vw_kpis_pedidos            |
-| quality   | quality.validation_results                            |
-| control   | control.ingestion_log                                 |
+Foram criados os seguintes datasets:
+
+```text
+raw
+bronze
+silver
+gold
+quality
+control
+```
 
 ---
 
-## Tabelas produzidas
+## Modelagem Dimensional
 
-### RAW
-- raw.erp_pedidos_cabecalho
-- raw.erp_pedidos_itens
-- raw.crm_clientes
-- raw.comercial_canais
-- raw.vendedores
-- raw.regioes
-- raw.produtos
-- raw.logistica_entregas
-- raw.atendimento_ocorrencias
+A camada GOLD foi modelada utilizando Star Schema.
 
-### BRONZE
-- bronze.erp_pedidos_cabecalho
-- bronze.erp_pedidos_itens
-- bronze.crm_clientes
-- bronze.comercial_canais
-- bronze.vendedores
-- bronze.regioes
-- bronze.produtos
-- bronze.logistica_entregas
-- bronze.atendimento_ocorrencias
+### Dimensões
 
-### SILVER
-- silver.silver_pedidos_cabecalho
-- silver.silver_pedidos_itens
-- silver.silver_clientes
-- silver.silver_canais
-- silver.silver_vendedores
-- silver.silver_regioes
-- silver.silver_produtos
-- silver.silver_entregas
-- silver.silver_ocorrencias
-- silver.silver_ocorrencias_orphan
-- silver.silver_pedidos_itens_orphan
+* dim_cliente
+* dim_produto
+* dim_vendedor
+* dim_canal
+* dim_regiao
+* dim_data
 
-### GOLD
-- gold.dim_cliente
-- gold.dim_produto
-- gold.dim_canal
-- gold.dim_regiao
-- gold.dim_vendedor
-- gold.dim_data
-- gold.fato_pedidos
-- gold.metricas_por_periodo
-- gold.metricas_por_regiao
-- gold.metricas_por_canal
-- gold.metricas_por_categoria
-- gold.metricas_operacionais
-- gold.vw_kpis_pedidos (VIEW)
+### Fato
 
-### CONTROL
-- control.ingestion_log (particionada por dia)
+* fato_pedidos
 
-### QUALITY
-- quality.validation_results (particionada por dia)
+A tabela fato centraliza os indicadores de negócio e se relaciona com as dimensões por meio de surrogate keys.
 
 ---
 
-## Decisões técnicas preservadas do case original
+## Data Marts
 
-| Decisão | Implementação GCP |
-|---------|-------------------|
-| Surrogate keys via sha2 | `TO_HEX(SHA256(...))` no BigQuery |
-| split cabecalho/itens | join ocorre na fato_pedidos (Gold) |
-| receita_liquida_item rateada | `peso_item = total_item / SUM(total_item) OVER (PARTITION BY order_id)` |
-| dim_data dinâmica | `GENERATE_DATE_ARRAY` do range efetivo ±30 dias |
-| xlsx via pandas | `pd.read_excel()` com `dtype=str` no RAW |
-| cancelados filtrados na view | `WHERE status_order != 'CANCELADO'` apenas em `vw_kpis_pedidos` |
-| entrega mais recente por pedido | `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY delivered_at DESC)` |
-| SE duplicada → SP | `ORDER BY CASE WHEN state = 'SP' THEN 0 ELSE 1 END` na dedup |
-| XX descartado | `WHERE region_code_clean IS NOT NULL` no Bronze |
+Foram criados marts analíticos para consumo de negócio.
+
+### metricas_por_regiao
+
+Consolida indicadores de pedidos, volume e receita por região.
+
+### metricas_por_canal
+
+Apresenta métricas agregadas por canal de vendas.
+
+### metricas_por_categoria
+
+Permite análise de receita, volume e comportamento por categoria e subcategoria de produtos.
 
 ---
 
-## Idempotência
+## Qualidade dos Dados
 
-Todos os notebooks usam `CREATE OR REPLACE TABLE` (BigQuery DDL).
-Reexecuções são seguras — não acumulam dados duplicados.
-O RAW usa `WRITE_TRUNCATE` na carga via pandas.
-`control.ingestion_log` e `quality.validation_results` são append-only com `execution_id` por execução.
+Foi implementado um framework centralizado de Data Quality através da tabela:
+
+quality.validation_results
+
+Validações implementadas:
+
+* Row Count
+* Duplicate Check
+* Null Check
+* Referential Integrity
+* Orphan Check
+* Customer Resolution
+* Discount Consistency
+
+Cada execução registra:
+
+* Execution ID
+* Camada
+* Tabela
+* Tipo de Validação
+* Métrica
+* Resultado
+
+---
+
+## Governança e Observabilidade
+
+A camada de controle registra informações operacionais do pipeline através da tabela:
+
+control.ingestion_log
+
+Esses registros permitem acompanhar execuções, volumes processados e comportamento dos processos ao longo do tempo.
+
+---
+
+## Orquestração com Dataform
+
+O Dataform foi utilizado para organizar as transformações, controlar dependências e disponibilizar linhagem entre os objetos analíticos.
+
+Objetos implementados:
+
+### Dimensões
+
+* dim_cliente
+* dim_produto
+* dim_vendedor
+
+### Fato
+
+* fato_pedidos
+
+### Data Marts
+
+* metricas_por_regiao
+* metricas_por_canal
+* metricas_por_categoria
+
+Além da execução automatizada, o projeto possui grafo de dependências e linhagem visual através do Compiled Graph.
+
+---
+
+## Conceitos Demonstrados
+
+* Lakehouse Architecture
+* Medallion Architecture
+* Cloud Storage
+* BigQuery
+* Dataform
+* Modelagem Dimensional
+* Star Schema
+* Data Quality
+* Data Governance
+* Data Lineage
+* Data Marts
+* Observabilidade
+
+---
+
+## Resultados
+
+O projeto demonstra uma implementação completa de uma plataforma moderna de dados utilizando Google Cloud Platform.
+
+Entre os principais entregáveis estão:
+
+* Arquitetura Lakehouse
+* Pipeline End-to-End
+* Camadas RAW, BRONZE, SILVER e GOLD
+* Modelagem Dimensional
+* Framework de Qualidade
+* Governança de Dados
+* Data Lineage
+* Data Marts Analíticos
+* Observabilidade Operacional
+
+---
+
+## Autor
+
+**Eli Rodrigues**
+
+Senior Data Engineer
+
+Tecnologias:
+
+GCP • BigQuery • Dataform • SQL • Python • Lakehouse • Data Quality • Data Governance
