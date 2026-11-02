@@ -282,3 +282,108 @@ Senior Data Engineer
 Tecnologias:
 
 GCP • BigQuery • Dataform • SQL • Python • Lakehouse • Data Quality • Data Governance
+
+
+---
+
+## Governanca e Qualidade - Estado Validado
+
+### Quality Gate Bronze para Silver
+
+O pipeline utiliza um Quality Gate antes da integracao Silver.
+
+Resultado da carga auditada:
+
+| Classificacao | Registros |
+|---|---:|
+| APPROVED | 383 |
+| QUARANTINED | 19 |
+| SUPERSEDED | 1 |
+
+A tabela `quality.quarantine_records` representa uma fotografia
+dos registros rejeitados na execucao atual, nao um historico acumulado.
+
+### Silver
+
+Foram validados 383 pedidos aprovados e 949 itens associados,
+com unicidade das chaves de negocio.
+
+Os registros orfaos sao mantidos separadamente para auditoria.
+
+### Gold candidata
+
+A fato Gold foi validada em simulacao, sem publicacao fisica:
+
+- 949 linhas e 949 chaves unicas.
+- 383 pedidos distintos.
+- Nenhuma receita liquida de item nula.
+- Nenhuma divergencia de rateio acima da tolerancia de R$ 0,01.
+- Correspondencia bidirecional de chaves com a Silver.
+
+### Cobertura dimensional
+
+| Indicador | Itens |
+|---|---:|
+| Totalmente resolvidos | 669 |
+| Com pelo menos uma pendencia | 280 |
+| Total | 949 |
+
+As referencias sao classificadas como:
+
+- `RESOLVIDO`
+- `NAO_INFORMADO`
+- `REFERENCIA_INEXISTENTE`
+
+A classificacao preserva os codigos de origem e nao cria
+cadastros artificiais.
+
+### Indicadores operacionais
+
+Validacoes executadas em simulacao:
+
+- 383 pedidos.
+- 191 pedidos com ocorrencia.
+- 81 pedidos com ocorrencia de alta severidade.
+- 91 ocorrencias de alta severidade.
+- 78 pedidos sem registro de entrega.
+- 57 entregas cadastradas sem status.
+- 56 pedidos com entrega em transito.
+- 43 pedidos com entrega atrasada.
+
+### Pre-flight Gold
+
+O modulo `notebooks/07_gold_preflight.py` executa
+validacoes estruturais antes da publicacao Gold.
+
+Foram aprovados testes positivos e negativos de bloqueio.
+
+As verificacoes incluem cardinalidade, unicidade,
+correspondencia de chaves, receita nula e rateio.
+
+O pre-flight nao torna a publicacao de multiplas tabelas
+atomica.
+
+### Ressalva financeira obrigatoria
+
+Os valores de cabecalho e os totais de itens apresentam
+divergencias sistemicas nos 383 pedidos aprovados.
+
+A receita calculada pelos itens nao deve ser apresentada
+como faturamento financeiro oficialmente conciliado.
+
+O rateio matematicamente correto dos descontos nao resolve
+essa divergencia entre fontes.
+
+A regra de reconciliacao entre cabecalhos e itens permanece
+pendente de definicao e homologacao de negocio.
+
+### Estado da publicacao
+
+A Silver corrigida esta publicada.
+
+A Gold corrigida foi validada em simulacao, mas ainda nao
+foi republicada.
+
+Existem 11 backups fisicos das tabelas Gold anteriores,
+que devem ser preservados ate a conclusao da publicacao
+e de suas verificacoes.

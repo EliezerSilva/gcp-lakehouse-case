@@ -57,7 +57,8 @@ SELECT
     COALESCE(
         SAFE.PARSE_DATE('%Y-%m-%d', order_date),
         SAFE.PARSE_DATE('%d/%m/%Y', order_date),
-        SAFE.PARSE_DATE('%d-%m-%Y', order_date)
+        SAFE.PARSE_DATE('%d-%m-%Y', order_date),
+        SAFE.PARSE_DATE('%Y/%m/%d', order_date)
     ) AS order_date,
 
     COALESCE(
@@ -73,6 +74,9 @@ SELECT
     SAFE_CAST(REPLACE(net_amount,      ',', '.') AS FLOAT64) AS net_amount,
 
     TRIM(payment_details) AS payment_details,
+
+    SAFE_CAST(NULLIF(TRIM(last_update), '') AS TIMESTAMP)
+        AS source_updated_at,
 
     CURRENT_TIMESTAMP() AS _loaded_at
 

@@ -27,6 +27,7 @@ STEPS = [
     ("setup",   "00_setup.py",           "validate_environment"),
     ("raw",     "01_raw_ingestion.py",   "run_raw_ingestion"),
     ("bronze",  "02_bronze_transform.py","run_bronze_transform"),
+    ("quality_gate", "06_quality_gate.py", "run_quality_gate"),
     ("silver",  "03_silver_integrate.py","run_silver_integrate"),
     ("gold",    "04_gold_model.py",      "run_gold_model"),
     ("quality", "05_quality_checks.py",  "run_quality_checks"),
@@ -51,11 +52,19 @@ def load_and_run(filename: str, function_name: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Lakehouse GCP Pipeline")
-    parser.add_argument("--layer", choices=["setup","raw","bronze","silver","gold","quality"],
+    parser.add_argument("--layer", choices=["setup","raw","bronze","quality_gate","silver","gold","quality"],
                         default=None, help="Executa apenas a camada especificada")
     args = parser.parse_args()
 
-    steps_to_run = STEPS if args.layer is None else [s for s in STEPS if s[0] == args.layer]
+    if args.layer in ("silver", "gold"):
+        raise SystemExit(
+            "Execucao isolada bloqueada: utilize o fluxo completo "
+            "apos validar o Quality Gate."
+        )
+
+    steps_to_run = STEPS if args.layer is None else [
+        s for s in STEPS if s[0] == args.layer
+    ]
 
     if not steps_to_run:
         logger.error(f"Layer não encontrada: {args.layer}")
@@ -78,7 +87,7 @@ def main():
             logger.error(f"[ERRO] {layer_name.upper()} falhou após {elapsed}s: {e}")
             failures.append((layer_name, str(e)))
             # Interrompe pipeline em falha de camada crítica (não quality)
-            if layer_name in ("setup", "raw", "bronze", "silver", "gold"):
+            if layer_name in ("setup", "raw", "bronze", "quality_gate", "silver", "gold"):
                 logger.error("Camada crítica com falha — pipeline interrompida.")
                 sys.exit(1)
 
