@@ -1,0 +1,122 @@
+contract_version: 1.0.0
+contract_status: DRAFT_NOT_ENFORCED
+dataset:
+  project: eli-lakehouse-gcp
+  source: silver.silver_pedidos_cabecalho + silver.silver_pedidos_itens + dimensoes
+  target: gold.fato_pedidos
+  platform: BigQuery
+  location: us-central1
+grain:
+  description: Uma linha por item de pedido
+  business_key:
+  - order_id
+  - item_seq
+schema:
+- name: sk_fato
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_cliente
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_produto
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_canal
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_vendedor
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_data
+  type: STRING
+  physical_mode: NULLABLE
+- name: sk_regiao
+  type: STRING
+  physical_mode: NULLABLE
+- name: order_id
+  type: STRING
+  physical_mode: NULLABLE
+- name: item_seq
+  type: STRING
+  physical_mode: NULLABLE
+- name: customer_code
+  type: STRING
+  physical_mode: NULLABLE
+- name: customer_id
+  type: STRING
+  physical_mode: NULLABLE
+- name: product_code
+  type: STRING
+  physical_mode: NULLABLE
+- name: seller_id
+  type: STRING
+  physical_mode: NULLABLE
+- name: canal_id
+  type: STRING
+  physical_mode: NULLABLE
+- name: regional_code
+  type: STRING
+  physical_mode: NULLABLE
+- name: order_date
+  type: DATE
+  physical_mode: NULLABLE
+- name: promised_date
+  type: DATE
+  physical_mode: NULLABLE
+- name: status_order
+  type: STRING
+  physical_mode: NULLABLE
+- name: item_status
+  type: STRING
+  physical_mode: NULLABLE
+- name: quantidade
+  type: INTEGER
+  physical_mode: NULLABLE
+- name: preco_unitario
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: valor_bruto_item
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: desconto_rateado_item
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: receita_liquida_item
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: valor_bruto_pedido
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: desconto_pedido
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: valor_liquido_pedido
+  type: FLOAT
+  physical_mode: NULLABLE
+- name: forma_pagamento
+  type: STRING
+  physical_mode: NULLABLE
+- name: _loaded_at
+  type: TIMESTAMP
+  physical_mode: NULLABLE
+quality_controls:
+  candidate_preflight: true
+  unique_fact_key: sk_fato
+  source_target_key_comparison:
+  - order_id
+  - item_seq
+  null_revenue_tolerance: 0
+  missing_keys_tolerance: 0
+  extra_keys_tolerance: 0
+  discount_allocation_tolerance: 0.01
+  dimensional_resolution: MONITORED_NOT_BLOCKING
+publication:
+  automatic_financial_correction: false
+  physical_gold_republication: NOT_AUTHORIZED
+  human_approval_required_for_financial_changes: true
+known_limitations:
+- Campos financeiros atualmente FLOAT
+- Reconciliacao entre valores do cabecalho e itens pendente
+- Publicacao Gold por multiplos CREATE OR REPLACE nao atomica
+- Schema fisico nao expressa obrigatoriedade logica das chaves
+- Contrato ainda nao homologado

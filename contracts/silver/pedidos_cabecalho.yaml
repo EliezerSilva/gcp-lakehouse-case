@@ -1,0 +1,86 @@
+contract_version: "1.0.0"
+contract_status: "DRAFT_NOT_ENFORCED"
+
+dataset:
+  project: "eli-lakehouse-gcp"
+  source: "bronze.erp_pedidos_cabecalho"
+  target: "silver.silver_pedidos_cabecalho"
+  platform: "BigQuery"
+  location: "us-central1"
+
+ownership:
+  technical_owner: "Data Engineering"
+  business_owner: "PENDING_DEFINITION"
+
+grain:
+  description: "Uma versão aprovada por order_id"
+  business_key:
+    - order_id
+
+schema:
+  - {name: order_id, type: STRING, required_by_quality_gate: true}
+  - {name: customer_code, type: STRING, required_by_quality_gate: false}
+  - {name: seller_id, type: STRING, required_by_quality_gate: false}
+  - {name: order_date, type: DATE, required_by_quality_gate: true}
+  - {name: promised_date, type: DATE, required_by_quality_gate: false}
+  - {name: status_order, type: STRING, required_by_quality_gate: false}
+  - {name: gross_amount, type: FLOAT, required_by_quality_gate: true}
+  - {name: discount_amount, type: FLOAT, required_by_quality_gate: true}
+  - {name: net_amount, type: FLOAT, required_by_quality_gate: true}
+  - {name: payment_details, type: STRING, required_by_quality_gate: false}
+  - {name: _loaded_at, type: TIMESTAMP, required_by_quality_gate: false}
+
+quality_rules:
+  - id: DQ001_ORDER_ID_REQUIRED
+    expression: "order_id IS NOT NULL AND TRIM(order_id) != ''"
+    on_failure: QUARANTINE
+
+  - id: DQ002_ORDER_DATE_INVALID
+    expression: "order_date IS NOT NULL"
+    on_failure: QUARANTINE
+
+  - id: DQ003_GROSS_AMOUNT_INVALID
+    expression: "gross_amount IS NOT NULL AND gross_amount >= 0"
+    on_failure: QUARANTINE
+
+  - id: DQ004_DISCOUNT_INVALID
+    expression: >
+      discount_amount IS NOT NULL
+      AND gross_amount IS NOT NULL
+      AND discount_amount >= 0
+      AND discount_amount <= gross_amount
+    on_failure: QUARANTINE
+
+  - id: DQ005_NET_AMOUNT_INVALID
+    expression: >
+      net_amount IS NOT NULL
+      AND gross_amount IS NOT NULL
+      AND discount_amount IS NOT NULL
+      AND ABS(net_amount - (gross_amount - discount_amount)) <= 0.01
+    tolerance: 0.01
+    on_failure: QUARANTINE
+
+version_selection:
+  partition_by:
+    - order_id
+  priority:
+    - "Registros sem erros de qualidade primeiro"
+    - "source_updated_at DESC"
+    - "Desempate deterministico por campos de negocio"
+  statuses:
+    - APPROVED
+    - QUARANTINED
+    - SUPERSEDED
+
+publication:
+  eligible_status: APPROVED
+  quarantine_consistency_assertion: true
+  automatic_financial_correction: false
+  human_approval_required_for_recovery: true
+
+known_limitations:
+  - "Tipos financeiros fisicos FLOAT; NUMERIC proposto para evolucao"
+  - "Reconciliacao cabecalho versus soma dos itens pendente"
+  - "Regras SQL repetidas em multiplos arquivos"
+  - "Validacoes documentadas ainda nao geradas automaticamente do YAML"
+  - "Contrato ainda nao homologado pelo responsavel de negocio"
