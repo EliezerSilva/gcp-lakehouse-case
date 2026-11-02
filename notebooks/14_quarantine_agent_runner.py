@@ -112,12 +112,41 @@ def run():
     if len(expected) != len(plan):
         raise RuntimeError("Identidades duplicadas no plano.")
 
+    # As classificacoes iniciais devem existir exatamente uma vez.
+    # Eventos posteriores sao validados separadamente.
+    candidates = sorted(
+        (
+            item for item in plan
+            if item["classification"] == "INSUFFICIENT_EVIDENCE"
+        ),
+        key=lambda item: item["record_hash"],
+    )
+
+    if len(candidates) != 5:
+        raise RuntimeError("Inventario de candidatos inesperado.")
+
+    investigation_record = candidates[0]["record_hash"]
+
+    expected_investigation_id = hashlib.sha256(
+        (
+            EXECUTION_ID + ":" + investigation_record
+            + ":READ_ONLY_INTEGRATION_TEST"
+        ).encode("utf-8")
+    ).hexdigest()
+
     previous = "GENESIS"
-    seen = set()
+    classified = set()
+    investigations = set()
+    event_ids = set()
+    event_count = 0
 
     with events_path.open(encoding="utf-8") as source:
         for line in source:
+            if not line.strip():
+                raise RuntimeError("Linha vazia no historico.")
+
             entry = json.loads(line)
+            event_count += 1
 
             body = {
                 key: value
@@ -143,33 +172,57 @@ def run():
                 raise RuntimeError("Cadeia de auditoria invalida.")
 
             record_hash = entry["record_hash"]
+            event_id = entry["event_id"]
 
-            if record_hash not in expected or record_hash in seen:
-                raise RuntimeError("Evento desconhecido ou duplicado.")
+            if event_id in event_ids:
+                raise RuntimeError("ID de evento duplicado.")
+            event_ids.add(event_id)
 
-            if (
-                entry["status"],
-                entry["action"],
-            ) != expected[record_hash]:
-                raise RuntimeError("Evento divergente do plano.")
+            if record_hash not in expected:
+                raise RuntimeError("Registro desconhecido no historico.")
 
-            expected_event_id = hashlib.sha256(
-                (
-                    EXECUTION_ID
-                    + ":"
-                    + record_hash
-                    + ":CLASSIFIED"
-                ).encode("utf-8")
-            ).hexdigest()
+            if entry["action"] == "READ_ONLY_INTEGRATION_TEST":
+                if (
+                    record_hash != investigation_record
+                    or event_id != expected_investigation_id
+                    or entry["status"] != "ESCALATED_FOR_HUMAN_REVIEW"
+                    or event_id in investigations
+                ):
+                    raise RuntimeError("Investigacao nao reconhecida.")
 
-            if entry["event_id"] != expected_event_id:
-                raise RuntimeError("Identidade de evento invalida.")
+                investigations.add(event_id)
 
-            seen.add(record_hash)
+            else:
+                if record_hash in classified:
+                    raise RuntimeError("Classificacao duplicada.")
+
+                if (
+                    entry["status"],
+                    entry["action"],
+                ) != expected[record_hash]:
+                    raise RuntimeError("Classificacao divergente.")
+
+                expected_id = hashlib.sha256(
+                    (
+                        EXECUTION_ID
+                        + ":"
+                        + record_hash
+                        + ":CLASSIFIED"
+                    ).encode("utf-8")
+                ).hexdigest()
+
+                if event_id != expected_id:
+                    raise RuntimeError("ID de classificacao invalido.")
+
+                classified.add(record_hash)
+
             previous = digest
 
-    if seen != set(expected):
-        raise RuntimeError("Historico incompleto.")
+    if classified != set(expected):
+        raise RuntimeError("Classificacoes incompletas.")
+
+    if len(investigations) != 1 or event_count != 20:
+        raise RuntimeError("Quantidade de eventos inesperada.")
 
     summary = Counter(
         item["classification"]
@@ -179,7 +232,9 @@ def run():
     print("=== AI QUARANTINE AGENT — AUDITORIA ===")
     print("Execution ID:", EXECUTION_ID)
     print("Registros:", len(plan))
-    print("Eventos:", len(seen))
+    print("Eventos:", event_count)
+    print("Classificacoes auditadas:", len(classified))
+    print("Investigacoes auditadas:", len(investigations))
     print("Classificacoes:", dict(sorted(summary.items())))
     print("Hash final:", previous)
     print("Correcoes aplicadas:", 0)
