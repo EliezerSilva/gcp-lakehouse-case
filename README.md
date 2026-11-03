@@ -1,5 +1,52 @@
 # GCP Lakehouse Case
 
+<!-- EXECUTIVE-OVERVIEW-2026 -->
+
+## Visao executiva
+
+Projeto de Engenharia de Dados Senior na GCP, com arquitetura
+Lakehouse, contratos de dados, Quality Gate, quarentena e
+investigacao assistida por Gemini no Vertex AI.
+
+### Fluxo principal
+
+Fontes simuladas
+→ Cloud Storage / BigQuery RAW
+→ Bronze (BigQuery)
+→ Quality Gate (SQL + Python)
+→ Silver (BigQuery)
+→ Gold Preflight
+→ Gold (Fatos, Dimensoes e Data Marts)
+→ Consumo analitico
+
+Fluxo paralelo:
+Quarentena → Evidencias Bronze → Gemini → Auditoria → Revisao humana
+
+### Tecnologias
+
+- Google Cloud Storage e BigQuery
+- Python e SQL
+- Dataform
+- YAML Data Contracts
+- Quality Gate e quarentena
+- Vertex AI / Gemini
+- Modelagem dimensional e governanca
+
+### Estado atual
+
+- Contratos Silver e Gold validados contra schemas fisicos.
+- Quality Gate e quarentena implementados.
+- Investigacao assistida por Gemini testada.
+- Gold Preflight executado.
+- Reconciliacao financeira pendente.
+- Gold fisica nao republicada nesta evolucao.
+- Contratos ainda nao aplicam automaticamente todas as regras YAML.
+
+Este repositorio e um laboratorio tecnico, nao uma
+implantacao corporativa homologada.
+
+---
+
 ## Sobre o Projeto
 
 Este projeto foi desenvolvido para demonstrar a implementação de uma arquitetura Lakehouse moderna utilizando serviços nativos da Google Cloud Platform (GCP).
@@ -387,3 +434,126 @@ foi republicada.
 Existem 11 backups fisicos das tabelas Gold anteriores,
 que devem ser preservados ate a conclusao da publicacao
 e de suas verificacoes.
+
+---
+
+<!-- QUALITY-GATE-AI-2026 -->
+
+## Evolucao da plataforma: Data Quality, Contracts e Gemini
+
+Esta evolucao acrescenta controles de qualidade, rastreabilidade
+e investigacao assistida por inteligencia artificial ao Lakehouse GCP.
+
+### Quality Gate — Bronze para Silver
+
+O Quality Gate utiliza SQL no BigQuery para validar versoes de pedidos.
+
+| Regra | Validacao |
+|---|---|
+| DQ001 | Identificador do pedido obrigatorio |
+| DQ002 | Data do pedido obrigatoria |
+| DQ003 | Valor bruto valido e nao negativo |
+| DQ004 | Desconto dentro dos limites permitidos |
+| DQ005 | Consistencia entre bruto, desconto e liquido |
+
+As versoes sao classificadas como:
+
+- `APPROVED`: versao valida selecionada para publicacao.
+- `QUARANTINED`: versao com violacao de qualidade.
+- `SUPERSEDED`: versao valida substituida por outra selecionada.
+
+A consistencia da quarentena e verificada com `ASSERT` no BigQuery.
+
+Arquivos: `quality_gate/` e `notebooks/06_quality_gate.py`.
+
+### Data Contracts
+
+Contratos declarativos em YAML:
+
+- `contracts/silver/pedidos_cabecalho.yaml`
+- `contracts/gold/fato_pedidos.yaml`
+
+O validador `contracts/validators/validate_schema.py`
+compara nomes e tipos de colunas com o schema fisico no BigQuery.
+
+Validacoes realizadas:
+
+- Silver: 11 colunas sem divergencias de schema.
+- Gold: 29 colunas sem divergencias de schema.
+
+Estado: `DRAFT_NOT_ENFORCED`.
+
+Os contratos ainda nao aplicam automaticamente todas
+as regras de negocio declaradas.
+
+### Gold Preflight
+
+O modulo `notebooks/07_gold_preflight.py`
+avalia uma candidata a Gold antes das operacoes de escrita.
+
+Entre as verificacoes estao:
+
+- Cardinalidade e unicidade de chaves.
+- Correspondencia dos itens.
+- Valores liquidos nulos.
+- Rateio dos descontos.
+- Resolucao dimensional.
+
+A reconciliacao financeira entre cabecalho e itens
+permanece pendente de definicao de negocio.
+
+A Gold fisica nao foi republicada nesta evolucao.
+As tabelas de backup foram preservadas.
+
+### Quarentena e investigacao assistida por IA
+
+Foi desenvolvido um mecanismo experimental de investigacao
+com Python, BigQuery e Gemini no Vertex AI.
+
+Fluxo:
+
+1. Identificar versoes em quarentena.
+2. Consultar evidencias tecnicas na Bronze.
+3. Solicitar sugestoes de investigacao ao Gemini.
+4. Controlar tentativas e evidencias repetidas.
+5. Registrar eventos para auditoria.
+6. Encaminhar casos sem comprovacao para revisao humana.
+
+O Gemini nao altera os dados e nao aprova
+automaticamente correcoes financeiras.
+
+O mecanismo de auditoria local utiliza eventos JSONL
+com encadeamento de hashes SHA-256.
+
+Esse controle nao substitui um armazenamento
+imutavel ou uma trilha corporativa de auditoria.
+
+Arquivos principais:
+`notebooks/08_ai_quarantine_agent.py` ate
+`notebooks/17_recovery_integration_test.py`,
+conforme os modulos presentes no repositorio.
+
+### Tecnologias demonstradas
+
+- Google Cloud Platform
+- Cloud Storage
+- BigQuery e BigQuery SQL
+- Python
+- Dataform (arquitetura inicial)
+- YAML Data Contracts
+- Data Quality e Quarentena
+- Vertex AI / Gemini
+- Modelagem Dimensional
+- Governanca e rastreabilidade
+
+### Limites atuais do case
+
+Este projeto e um laboratorio tecnico e portifolio profissional.
+
+As integracoes federadas e a orquestracao gerenciada
+nao devem ser consideradas implementadas sem evidencia adicional.
+
+A validacao de schema nao equivale a homologacao de negocio.
+
+A publicacao definitiva da Gold depende da resolucao
+das divergencias financeiras identificadas.
