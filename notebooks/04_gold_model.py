@@ -26,6 +26,7 @@
 # =============================================================================
 
 import logging
+from pathlib import Path
 from google.cloud import bigquery
 
 from setup_00 import (
@@ -208,7 +209,20 @@ WITH itens_com_peso AS (
         i.total_item,
         i.item_status,
         -- Peso proporcional do item no total do pedido (base para rateio do desconto)
-        SAFE_DIVIDE(i.total_item, SUM(i.total_item) OVER (PARTITION BY i.order_id)) AS peso_item
+        CASE
+            WHEN SUM(i.total_item) OVER (PARTITION BY i.order_id) = 0
+             AND EXISTS (
+                 SELECT 1
+                 FROM `{P}.silver.silver_pedidos_cabecalho` c0
+                 WHERE c0.order_id = i.order_id
+                   AND c0.discount_amount = 0
+             )
+            THEN 0.0
+            ELSE SAFE_DIVIDE(
+                i.total_item,
+                SUM(i.total_item) OVER (PARTITION BY i.order_id)
+            )
+        END AS peso_item
     FROM `{P}.silver.silver_pedidos_itens` i
 ),
 fato_base AS (
@@ -280,7 +294,61 @@ fato_base AS (
     LEFT JOIN `{P}.silver.silver_vendedores` v
         ON c.seller_id = v.seller_id
 )
-SELECT * FROM fato_base
+
+SELECT
+    f.*,
+
+    CASE
+        WHEN NULLIF(TRIM(f.customer_code), '') IS NULL
+            THEN 'NAO_INFORMADO'
+        WHEN f.customer_id IS NULL
+            THEN 'REFERENCIA_INEXISTENTE'
+        ELSE 'RESOLVIDO'
+    END AS qualidade_cliente,
+
+    CASE
+        WHEN NULLIF(TRIM(f.product_code), '') IS NULL
+            THEN 'NAO_INFORMADO'
+        WHEN p.product_id IS NULL
+            THEN 'REFERENCIA_INEXISTENTE'
+        ELSE 'RESOLVIDO'
+    END AS qualidade_produto,
+
+    CASE
+        WHEN NULLIF(TRIM(f.canal_id), '') IS NULL
+            THEN 'NAO_INFORMADO'
+        WHEN ca.canal_id IS NULL
+            THEN 'REFERENCIA_INEXISTENTE'
+        ELSE 'RESOLVIDO'
+    END AS qualidade_canal,
+
+    CASE
+        WHEN NULLIF(TRIM(f.regional_code), '') IS NULL
+            THEN 'NAO_INFORMADO'
+        WHEN r.regional_code IS NULL
+            THEN 'REFERENCIA_INEXISTENTE'
+        ELSE 'RESOLVIDO'
+    END AS qualidade_regiao
+
+FROM fato_base f
+
+LEFT JOIN (
+    SELECT DISTINCT product_id
+    FROM `{P}.silver.silver_produtos`
+) p
+    ON f.product_code = p.product_id
+
+LEFT JOIN (
+    SELECT DISTINCT canal_id
+    FROM `{P}.silver.silver_canais`
+) ca
+    ON f.canal_id = ca.canal_id
+
+LEFT JOIN (
+    SELECT DISTINCT regional_code
+    FROM `{P}.silver.silver_regioes`
+) r
+    ON f.regional_code = r.regional_code
 """
 
 # ---------------------------------------------------------------------------
@@ -312,6 +380,7 @@ ORDER BY 1
 SQL_METRICAS_REGIAO = f"""
 SELECT
     f.regional_code,
+    f.qualidade_regiao,
     r.nome_regiao,
     r.estado,
     COUNT(DISTINCT f.order_id)            AS total_pedidos,
@@ -322,7 +391,7 @@ SELECT
 FROM `{P}.gold.fato_pedidos` f
 LEFT JOIN `{P}.gold.dim_regiao` r ON f.sk_regiao = r.sk_regiao
 WHERE f.status_order != 'CANCELADO'
-GROUP BY 1, 2, 3
+GROUP BY 1, 2, 3, 4
 """
 
 # ---------------------------------------------------------------------------
@@ -332,6 +401,7 @@ GROUP BY 1, 2, 3
 SQL_METRICAS_CANAL = f"""
 SELECT
     f.sk_canal,
+    f.qualidade_canal,
     c.nome_canal,
     c.tipo_canal,
     COUNT(DISTINCT f.order_id)            AS total_pedidos,
@@ -342,7 +412,7 @@ SELECT
 FROM `{P}.gold.fato_pedidos` f
 LEFT JOIN `{P}.gold.dim_canal` c ON f.sk_canal = c.sk_canal
 WHERE f.status_order != 'CANCELADO'
-GROUP BY 1, 2, 3
+GROUP BY 1, 2, 3, 4
 """
 
 # ---------------------------------------------------------------------------
@@ -351,6 +421,7 @@ GROUP BY 1, 2, 3
 
 SQL_METRICAS_CATEGORIA = f"""
 SELECT
+    f.qualidade_produto,
     p.categoria,
     p.subcategoria,
     COUNT(DISTINCT f.order_id)            AS total_pedidos,
@@ -361,7 +432,7 @@ SELECT
 FROM `{P}.gold.fato_pedidos` f
 LEFT JOIN `{P}.gold.dim_produto` p ON f.sk_produto = p.sk_produto
 WHERE f.status_order != 'CANCELADO'
-GROUP BY 1, 2
+GROUP BY 1, 2, 3
 """
 
 # ---------------------------------------------------------------------------
@@ -376,14 +447,14 @@ WITH pedidos_base AS (
         order_id,
         order_date,
         status_order,
-        net_amount
+        valor_liquido_pedido AS net_amount
     FROM `{P}.gold.fato_pedidos`
 ),
 ocorrencias_por_pedido AS (
     SELECT
         order_id,
         COUNT(*)                   AS total_ocorrencias,
-        COUNTIF(severity = 'ALTA') AS ocorrencias_alta_severidade
+        COUNTIF(UPPER(TRIM(severity)) IN ('HIGH', 'ALTA')) AS ocorrencias_alta_severidade
     FROM `{P}.silver.silver_ocorrencias`
     GROUP BY order_id
 )
@@ -393,11 +464,20 @@ SELECT
     COUNT(p.order_id)                  AS total_pedidos,
 
     COUNTIF(e.delivery_status = 'ENTREGUE')    AS pedidos_entregues,
-    COUNTIF(e.delivery_status = 'EM_TRANSITO') AS pedidos_em_transito,
-    COUNTIF(e.delivery_status = 'PENDENTE')    AS pedidos_pendentes,
+    COUNTIF(UPPER(TRIM(e.delivery_status)) IN ('IN_TRANSIT', 'EM_TRANSITO')) AS pedidos_em_transito,
+    COUNTIF(UPPER(TRIM(e.delivery_status)) = 'PENDENTE')    AS pedidos_pendentes,
     COUNTIF(e.delivery_id IS NULL)             AS pedidos_sem_entrega,
+    COUNTIF(
+        e.delivery_id IS NOT NULL
+        AND NULLIF(TRIM(e.delivery_status), '') IS NULL
+    ) AS pedidos_entrega_sem_status,
+    COUNTIF(UPPER(TRIM(e.delivery_status)) = 'ATRASADO')
+        AS pedidos_atrasados,
+    COUNTIF(UPPER(TRIM(e.delivery_status)) = 'CANCELADO')
+        AS pedidos_entrega_cancelada,
 
     COUNTIF(o.total_ocorrencias > 0)                AS pedidos_com_ocorrencia,
+    COUNTIF(o.ocorrencias_alta_severidade > 0) AS pedidos_com_ocorrencia_alta,
     COALESCE(SUM(o.ocorrencias_alta_severidade), 0) AS ocorrencias_alta_severidade,
 
     ROUND(AVG(e.freight_cost), 2) AS custo_medio_entrega,
@@ -485,6 +565,23 @@ WHERE f.status_order != 'CANCELADO'
 # ---------------------------------------------------------------------------
 
 def run_gold_model():
+    # Pre-flight bloqueante antes de qualquer escrita Gold.
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    preflight_path = Path(__file__).with_name("07_gold_preflight.py")
+
+    if not preflight_path.is_file():
+        raise RuntimeError("Gold bloqueada: pre-flight ausente.")
+
+    spec = spec_from_file_location("gold_preflight", preflight_path)
+
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Gold bloqueada: pre-flight indisponivel.")
+
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.run_gold_preflight()
+
     bq = get_bq_client()
     ensure_ingestion_log(bq)
     logger.info(f"=== GOLD Model | execution_id={EXECUTION_ID} ===")

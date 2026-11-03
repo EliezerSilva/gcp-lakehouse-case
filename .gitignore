@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Credenciais e configuracoes locais
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+service-account*.json
+
+# Sistema operacional e editores
+.DS_Store
+.idea/
+.vscode/
+
+# Logs locais
+*.log
+
+# Execucoes locais do agente de quarentena
+/runtime/

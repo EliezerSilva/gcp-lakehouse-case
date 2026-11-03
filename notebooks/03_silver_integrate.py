@@ -20,6 +20,7 @@
 # =============================================================================
 
 import logging
+from pathlib import Path
 from google.cloud import bigquery
 
 from setup_00 import (
@@ -49,11 +50,26 @@ def create_or_replace(bq: bigquery.Client, table: str, select_sql: str, descript
 #                payment_details
 # ---------------------------------------------------------------------------
 
+QUALITY_GATE_PUBLISH_SQL = (
+    Path(__file__).resolve().parent.parent
+    / "quality_gate"
+    / "03_publish_approved_orders.sql"
+)
+
+if not QUALITY_GATE_PUBLISH_SQL.is_file():
+    raise FileNotFoundError(
+        f"SQL de publicação do Quality Gate não encontrado: "
+        f"{QUALITY_GATE_PUBLISH_SQL}"
+    )
+
+approved_sql = QUALITY_GATE_PUBLISH_SQL.read_text(
+    encoding="utf-8"
+).strip().rstrip(";")
+
+# O SQL versionado é a fonte única dos critérios de aprovação.
 SQL_SILVER_PEDIDOS_CAB = f"""
-WITH deduped AS (
-    SELECT *,
-        ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY _loaded_at DESC) AS _rn
-    FROM `{P}.bronze.erp_pedidos_cabecalho`
+WITH approved AS (
+{approved_sql}
 )
 SELECT
     order_id,
@@ -67,8 +83,7 @@ SELECT
     net_amount,
     payment_details,
     CURRENT_TIMESTAMP() AS _loaded_at
-FROM deduped
-WHERE _rn = 1
+FROM approved
 """
 
 # ---------------------------------------------------------------------------
@@ -81,8 +96,31 @@ WHERE _rn = 1
 SQL_SILVER_PEDIDOS_ITENS = f"""
 WITH deduped AS (
     SELECT *,
-        ROW_NUMBER() OVER (PARTITION BY order_id, item_seq ORDER BY _loaded_at DESC) AS _rn
-    FROM `{P}.bronze.erp_pedidos_itens`
+        ROW_NUMBER() OVER (
+            PARTITION BY b.order_id, b.item_seq
+            ORDER BY
+                CASE
+                    WHEN b.quantity > 0
+                     AND b.unit_price IS NOT NULL
+                     AND b.unit_price >= 0
+                     AND b.total_item IS NOT NULL
+                    THEN 1 ELSE 0
+                END DESC,
+                CASE WHEN p.product_id IS NOT NULL THEN 1 ELSE 0 END DESC,
+                b._loaded_at DESC,
+                TO_HEX(SHA256(TO_JSON_STRING(STRUCT(
+                    b.product_code, b.quantity, b.unit_price, b.total_item
+                )))) ASC
+        ) AS _rn
+    FROM `{P}.bronze.erp_pedidos_itens` b
+    LEFT JOIN (
+        SELECT DISTINCT product_id
+        FROM `{P}.silver.silver_produtos`
+    ) p ON b.product_code = p.product_id
+)
+, approved_orders AS (
+    SELECT DISTINCT order_id
+    FROM `{P}.silver.silver_pedidos_cabecalho`
 )
 SELECT
     order_id,
@@ -95,6 +133,7 @@ SELECT
     item_status,
     CURRENT_TIMESTAMP() AS _loaded_at
 FROM deduped
+INNER JOIN approved_orders USING (order_id)
 WHERE _rn = 1
 """
 
@@ -320,9 +359,17 @@ SELECT
     o.metadata_channel,
     o.metadata_sla_hours,
     o.created_at,
-    'SEM_PEDIDO' AS orphan_reason,
+    CASE
+        WHEN r.order_id IS NULL
+            THEN 'PARENT_ORDER_MISSING'
+        ELSE 'PARENT_ORDER_NOT_APPROVED'
+    END AS orphan_reason,
     CURRENT_TIMESTAMP() AS _loaded_at
 FROM deduped o
+LEFT JOIN (
+    SELECT DISTINCT order_id
+    FROM `{P}.bronze.erp_pedidos_cabecalho`
+) r ON o.order_id = r.order_id
 LEFT JOIN valid_orders v ON o.order_id = v.order_id
 WHERE o._rn = 1
   AND v.order_id IS NULL
@@ -334,6 +381,19 @@ WHERE o._rn = 1
 # ---------------------------------------------------------------------------
 
 SQL_SILVER_ITENS_ORPHAN = f"""
+WITH deduped AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY order_id, item_seq
+            ORDER BY _loaded_at DESC
+        ) AS _rn
+    FROM `{P}.bronze.erp_pedidos_itens`
+),
+raw_orders AS (
+    SELECT DISTINCT order_id
+    FROM `{P}.bronze.erp_pedidos_cabecalho`
+)
 SELECT
     i.order_id,
     i.item_seq,
@@ -343,11 +403,19 @@ SELECT
     i.total_item,
     i.total_item_original,
     i.item_status,
-    'SEM_PEDIDO_CABECALHO' AS orphan_reason,
-    CURRENT_TIMESTAMP()    AS _loaded_at
-FROM `{P}.silver.silver_pedidos_itens` i
-LEFT JOIN `{P}.silver.silver_pedidos_cabecalho` c ON i.order_id = c.order_id
-WHERE c.order_id IS NULL
+    CASE
+        WHEN r.order_id IS NULL
+            THEN 'PARENT_ORDER_MISSING'
+        ELSE 'PARENT_ORDER_NOT_APPROVED'
+    END AS orphan_reason,
+    CURRENT_TIMESTAMP() AS _loaded_at
+FROM deduped i
+LEFT JOIN `{P}.silver.silver_pedidos_cabecalho` c
+    ON i.order_id = c.order_id
+LEFT JOIN raw_orders r
+    ON i.order_id = r.order_id
+WHERE i._rn = 1
+  AND c.order_id IS NULL
 """
 
 # ---------------------------------------------------------------------------
