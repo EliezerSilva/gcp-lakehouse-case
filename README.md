@@ -57,41 +57,65 @@ A solução simula um ambiente corporativo onde dados provenientes de CRM, ERP, 
 
 ---
 
+
 ## Arquitetura da Solução
 
-A arquitetura foi implementada seguindo o padrão Medallion Architecture.
+A arquitetura utiliza BigQuery, SQL e Python, com controles
+de qualidade antes da publicação dos dados.
 
-```text
-Sistemas de Origem
-        │
-        ▼
-Cloud Storage (RAW)
-        │
-        ▼
-BigQuery RAW
-        │
-        ▼
-BRONZE
-        │
-        ▼
-SILVER
-        │
-        ▼
-Dataform
-        │
-        ▼
-GOLD
-        │
-        ├── Dimensões
-        ├── Fato
-        └── Data Marts
-        │
-        ▼
-Quality Layer
-        │
-        ▼
-Consumo Analítico
-```
+### Fluxo principal
+
+    FONTES CORPORATIVAS SIMULADAS
+    ERP | CRM | Logistica | Atendimento
+                  |
+                  v
+          CLOUD STORAGE (RAW)
+                  |
+                  v
+            BIGQUERY RAW
+                  |
+                  v
+           BRONZE - BigQuery
+                  |
+                  v
+             QUALITY GATE
+               /      \
+              v        v
+           SILVER    QUARENTENA
+              |         |
+              |         v
+              |     VERTEX AI / GEMINI
+              |     Evidencias Bronze
+              |     Auditoria SHA-256
+              |     Revisao humana
+              |
+              v
+          GOLD PREFLIGHT
+              |
+              v
+          GOLD - BigQuery
+              |
+              +-- Dimensoes
+              +-- Fato de pedidos
+              +-- Data Marts
+              |
+              v
+          CONSUMO ANALITICO
+
+### Governanca transversal
+
+- Contratos YAML para Silver e Gold.
+- Validacao de schema com Python e BigQuery API.
+- Quality Gate com regras DQ001 a DQ005.
+- Quarentena de registros invalidos.
+- Investigacao assistida por Gemini.
+- Revisao humana para correcoes financeiras.
+
+O Dataform faz parte da arquitetura inicial documentada,
+mas nao substitui o Quality Gate.
+
+A reconciliacao financeira permanece pendente.
+A Gold fisica nao foi republicada nesta evolucao.
 
 ---
 
